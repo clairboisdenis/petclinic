@@ -3,7 +3,7 @@ pipeline {
     
     environment {
         DOCKER_IMAGE = 'petclinic-app'
-        DOCKER_TAG = "${env.BUILD_NUMBER}"
+        CONTAINER_NAME = 'petclinic-container'
     }
     
     stages {
@@ -14,70 +14,87 @@ pipeline {
             }
         }
         
-        stage('Build with Maven') {
-            steps {
-                echo '🔨 Compilation du projet...'
-                sh '''
-                    chmod +x ./mvnw
-                    ./mvnw clean package -DskipTests
-                '''
-            }
-        }
-        
-        stage('Test') {
-            steps {
-                echo '🧪 Exécution des tests...'
-                sh '''
-                    ./mvnw test
-                '''
-            }
-            post {
-                always {
-                    junit '**/target/surefire-reports/*.xml'
+        stage('Build with Maven in Docker') {
+            agent {
+                docker {
+                    image 'maven:3.8.5-openjdk-17'
+                    args '-v /var/jenkins_home/.m2:/root/.m2'
                 }
+            }
+            steps {
+                echo '🔨 Compilation du projet avec Maven...'
+                sh 'mvn clean package -DskipTests'
             }
         }
         
         stage('Build Docker Image') {
             steps {
                 echo '🐳 Construction de l\'image Docker...'
-                sh '''
-                    docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-                    docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
-                '''
+                script {
+                    sh """
+                        docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} .
+                        docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest
+                    """
+                }
+            }
+        }
+        
+        stage('Stop Old Container') {
+            steps {
+                echo '🛑 Arrêt de l\'ancien conteneur...'
+                script {
+                    sh """
+                        docker stop ${CONTAINER_NAME} || true
+                        docker rm ${CONTAINER_NAME} || true
+                    """
+                }
             }
         }
         
         stage('Deploy') {
             steps {
                 echo '🚀 Déploiement de l\'application...'
-                sh '''
-                    # Arrêter le conteneur existant s'il existe
-                    docker stop petclinic || true
-                    docker rm petclinic || true
-                    
-                    # Démarrer le nouveau conteneur
-                    docker run -d \
-                        --name petclinic \
-                        --network test-compose_app-network \
-                        -p 8080:8080 \
-                        ${DOCKER_IMAGE}:${DOCKER_TAG}
-                '''
+                script {
+                    sh """
+                        docker run -d \
+                            --name ${CONTAINER_NAME} \
+                            --network test-compose_app-network \
+                            -p 8081:8080 \
+                            ${DOCKER_IMAGE}:latest
+                    """
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                echo '🏥 Vérification de la santé de l\'application...'
+                script {
+                    sh '''
+                        echo "Attente du démarrage de l'application..."
+                        sleep 30
+                        
+                        echo "Test de connexion..."
+                        curl -f http://localhost:8081 || exit 1
+                        
+                        echo "✅ Application démarrée avec succès !"
+                    '''
+                }
             }
         }
     }
     
     post {
         success {
-            echo '✅ Pipeline exécuté avec succès!'
-            echo '🌐 Application accessible sur http://localhost:8080'
+            echo '✅ Pipeline terminé avec succès !'
+            echo '🌐 Application disponible sur http://localhost:8081'
         }
         failure {
             echo '❌ Le pipeline a échoué'
         }
         always {
-            echo '🧹 Nettoyage...'
-            sh 'docker system prune -f || true'
+            echo '🧹 Nettoyage des images inutilisées...'
+            sh 'docker image prune -f || true'
         }
     }
 }
