@@ -41,12 +41,16 @@ pipeline {
         
         stage('Stop Old Container') {
             steps {
-                echo '🛑 Arrêt de l\'ancien conteneur...'
+                echo '🛑 Nettoyage de tous les conteneurs petclinic...'
                 script {
-                    sh """
-                        docker stop ${CONTAINER_NAME} || true
-                        docker rm ${CONTAINER_NAME} || true
-                    """
+                    sh '''
+                        # Supprimer TOUS les conteneurs avec le nom (même ceux en état Created)
+                        docker ps -aq --filter "name=petclinic-container" | xargs -r docker rm -f || true
+                        
+                        # Vérifier que le port est libre
+                        echo "✅ Nettoyage terminé"
+                        docker ps | grep 8081 || echo "✅ Port 8081 disponible"
+                    '''
                 }
             }
         }
