@@ -50,7 +50,6 @@ pipeline {
                     sh """
                         docker ps -aq --filter name=${CONTAINER_NAME} | xargs -r docker rm -f || true
                         echo "✅ Nettoyage terminé"
-                        docker ps | grep ${HOST_PORT} || echo "✅ Port ${HOST_PORT} disponible"
                     """
                 }
             }
@@ -67,7 +66,7 @@ pipeline {
                             -p ${HOST_PORT}:${CONTAINER_PORT} \
                             ${DOCKER_IMAGE}:latest
                         
-                        echo "✅ Conteneur démarré : ${CONTAINER_NAME}"
+                        echo "✅ Conteneur démarré"
                         docker ps --filter name=${CONTAINER_NAME}
                     """
                 }
@@ -76,37 +75,41 @@ pipeline {
         
         stage('Health Check') {
             steps {
-                echo "🏥 Vérification de la santé de l'application..."
+                echo "🏥 Vérification de la santé..."
                 script {
                     sh """
-                        echo "⏳ Attente du démarrage (30s)..."
+                        echo "⏳ Attente 30s pour démarrage..."
                         sleep 30
                         
-                        echo "🔍 Vérification des logs..."
+                        echo ""
+                        echo "🔍 Logs du conteneur :"
                         docker logs ${CONTAINER_NAME} --tail 20
                         
-                        echo "🧪 Test de connexion depuis l'hôte Docker..."
-                        docker exec ${CONTAINER_NAME} curl -f http://localhost:${CONTAINER_PORT} || echo "⚠️ App pas encore prête"
+                        echo ""
+                        echo "🧪 Test HTTP interne :"
+                        docker exec ${CONTAINER_NAME} curl -f http://localhost:${CONTAINER_PORT} > /dev/null 2>&1 && echo "✅ Application répond !" || echo "⚠️ Application pas encore prête"
                         
-                        echo "✅ Conteneur actif !"
+                        echo ""
+                        echo "📊 Statut conteneur :"
                         docker ps --filter name=${CONTAINER_NAME} --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"
                     """
                 }
             }
         }
         
-        stage('Access Information') {
+        stage('Access Info') {
             steps {
-                echo "📋 Informations d'accès :"
+                echo "📋 Informations d'accès"
                 script {
                     sh """
                         echo ""
+                        echo "========================================="
                         echo "🌐 Application accessible sur :"
                         echo "   http://localhost:${HOST_PORT}"
                         echo ""
                         echo "🐳 Conteneur : ${CONTAINER_NAME}"
-                        echo "📊 Logs : docker logs -f ${CONTAINER_NAME}"
-                        echo ""
+                        echo "📊 Voir logs : docker logs -f ${CONTAINER_NAME}"
+                        echo "========================================="
                     """
                 }
             }
@@ -119,12 +122,13 @@ pipeline {
             sh 'docker image prune -f'
         }
         success {
-            echo "✅ Le pipeline a réussi !"
+            echo "✅ LE PIPELINE A RÉUSSI !"
             echo "🌐 Accédez à l'application : http://localhost:${HOST_PORT}"
         }
         failure {
-            echo "❌ Le pipeline a échoué"
-            sh 'docker logs ${CONTAINER_NAME} --tail 50 || true'
+            echo "❌ LE PIPELINE A ÉCHOUÉ"
+            echo "📊 Logs du conteneur :"
+            sh 'docker logs ${CONTAINER_NAME} --tail 50 || echo "Conteneur introuvable"'
         }
     }
 }
